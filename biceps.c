@@ -1,14 +1,16 @@
-/* etape 4.2 : execution sequentielle des commandes avec le separateur ';' */
+/* etape 4.3 : historique persistant, gestion des signaux et sortie propre */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <signal.h> /* ajout pour la gestion des signaux */
 #include <readline/readline.h>
 #include <readline/history.h>
 
 #define MAXPAR 10
 #define NBMAXC 10
+#define HIST_FILE ".biceps_history" /* fichier de stockage de l'historique */
 
 static char *Mots[MAXPAR];
 static int NMots;
@@ -77,9 +79,12 @@ int analyseCom(char* b) {
     return NMots;
 }
 
-/* commandes internes */
+/* fonctions des commandes internes */
 
 int Sortie(int n, char *p[]) {
+    /* sauvegarde de l'historique avant de quitter */
+    write_history(HIST_FILE);
+    printf("fermeture de biceps. au revoir.\n");
     exit(0);
     return 0;
 }
@@ -131,7 +136,6 @@ void majComInt(void) {
 int execComInt(int n, char **p) {
     int i;
     if (n == 0) return 0;
-    
     for (i = 0; i < nb_com_int; i++) {
         if (strcmp(p[0], tab_com_int[i].nom) == 0) {
             tab_com_int[i].fonction(n, p);
@@ -144,18 +148,17 @@ int execComInt(int n, char **p) {
 int execComExt(char **p) {
     pid_t pid;
     int status;
-
     pid = fork();
-    
     if (pid < 0) {
         perror("erreur fork");
         return -1;
     }
-
     if (pid == 0) {
 #ifdef TRACE
         printf("[trace] execution du processus fils (pid=%d) pour %s\n", getpid(), p[0]);
 #endif
+        /* le fils doit pouvoir etre interrompu par ctrl-c */
+        signal(SIGINT, SIG_DFL);
         execvp(p[0], p);
         perror(p[0]);
         exit(1);
@@ -165,16 +168,21 @@ int execComExt(char **p) {
 #endif
         waitpid(pid, &status, 0);
     }
-    
     return 0;
 }
 
 int main(void) {
     char* ligne = NULL;
     char* prompt = NULL;
-    char* commande_isolee; /* pour strsep sur ';' */
+    char* commande_isolee;
     int i;
 
+    /* ignore le signal d'interruption ctrl-c pour le shell pere */
+    signal(SIGINT, SIG_IGN);
+
+    /* chargement de l'historique de la session precedente */
+    read_history(HIST_FILE);
+    
     majComInt();
     
     while (1) {
@@ -187,15 +195,17 @@ int main(void) {
         ligne = readline(prompt);
         free(prompt);
 
+        /* gestion du eof (ctrl-d) */
         if (ligne == NULL) {
             printf("\n");
-            break;
+            /* appel de la fonction de sortie pour sauvegarder et quitter proprement */
+            Sortie(0, NULL);
         }
 
         if (strlen(ligne) > 0) {
+            /* ajout a l'historique uniquement si la ligne est utile */
             add_history(ligne);
             
-            /* etape 4.2 : on decoupe la ligne par rapport au ';' */
             char* ptr_ligne = ligne;
             while ((commande_isolee = strsep(&ptr_ligne, ";")) != NULL) {
                 if (*commande_isolee != '\0') {
