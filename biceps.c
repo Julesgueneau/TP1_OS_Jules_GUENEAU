@@ -1,9 +1,9 @@
-/* etape 3.2 : gestion des commandes externes avec fork et execvp */
+/* etape 4.1 : ajout des commandes internes indispensables (cd, pwd, vers) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <sys/wait.h> /* ajout pour la fonction waitpid */
+#include <sys/wait.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 
@@ -64,7 +64,6 @@ int analyseCom(char* b) {
     NMots = 0;
     while ((token = strsep(&b, delimiteurs)) != NULL) {
         if (*token != '\0') {
-            /* on limite a maxpar - 1 pour garantir la place du null final */
             if (NMots < MAXPAR - 1) {
                 Mots[NMots] = copyString(token);
                 NMots++;
@@ -74,13 +73,44 @@ int analyseCom(char* b) {
             }
         }
     }
-    /* ajout indispensable pour execvp : le tableau doit se terminer par null */
     Mots[NMots] = NULL;
     return NMots;
 }
 
+/* commandes internes */
+
 int Sortie(int n, char *p[]) {
     exit(0);
+    return 0;
+}
+
+/* changement de repertoire courant */
+int CommandeCD(int n, char *p[]) {
+    if (n < 2) {
+        fprintf(stderr, "cd: argument manquant\n");
+    } else {
+        if (chdir(p[1]) != 0) {
+            perror("cd");
+        }
+    }
+    return 0;
+}
+
+/* affichage du repertoire courant */
+int CommandePWD(int n, char *p[]) {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("%s\n", cwd);
+    } else {
+        perror("pwd");
+    }
+    return 0;
+}
+
+/* affichage de la version du shell */
+int CommandeVERS(int n, char *p[]) {
+    printf("biceps (bel interpreteur de commandes des eleves de polytech sorbonne)\n");
+    printf("version 1.0\n");
     return 0;
 }
 
@@ -94,8 +124,12 @@ void ajouteCom(char *nom, int (*fonc)(int, char **)) {
     nb_com_int++;
 }
 
+/* enregistrement des nouvelles commandes dans le tableau au demarrage */
 void majComInt(void) {
     ajouteCom("exit", Sortie);
+    ajouteCom("cd", CommandeCD);
+    ajouteCom("pwd", CommandePWD);
+    ajouteCom("vers", CommandeVERS);
 }
 
 void listeComInt(void) {
@@ -119,12 +153,10 @@ int execComInt(int n, char **p) {
     return 0;
 }
 
-/* nouvelle fonction de gestion des processus externes */
 int execComExt(char **p) {
     pid_t pid;
     int status;
 
-    /* duplication du processus courant */
     pid = fork();
     
     if (pid < 0) {
@@ -133,22 +165,16 @@ int execComExt(char **p) {
     }
 
     if (pid == 0) {
-        /* espace memoire du processus fils */
 #ifdef TRACE
         printf("[trace] execution du processus fils (pid=%d) pour %s\n", getpid(), p[0]);
 #endif
-        /* recouvrement de l'espace memoire par le binaire appele */
         execvp(p[0], p);
-        
-        /* si execvp echoue (commande introuvable), les instructions suivantes s'executent */
         perror(p[0]);
         exit(1);
     } else {
-        /* espace memoire du processus pere */
 #ifdef TRACE
         printf("[trace] attente de la fin du processus fils (pid=%d)\n", pid);
 #endif
-        /* le shell pere est suspendu tant que le fils n'a pas termine */
         waitpid(pid, &status, 0);
     }
     
@@ -182,7 +208,6 @@ int main(void) {
             analyseCom(ligne);
             
             if (NMots > 0) {
-                /* l'ordre d'execution est strict : interne puis externe */
                 if (execComInt(NMots, Mots) == 0) {
                     execComExt(Mots);
                 }
