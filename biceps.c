@@ -1,4 +1,4 @@
-/* etape 4.1 : ajout des commandes internes indispensables (cd, pwd, vers) */
+/* etape 4.2 : execution sequentielle des commandes avec le separateur ';' */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -84,7 +84,6 @@ int Sortie(int n, char *p[]) {
     return 0;
 }
 
-/* changement de repertoire courant */
 int CommandeCD(int n, char *p[]) {
     if (n < 2) {
         fprintf(stderr, "cd: argument manquant\n");
@@ -96,7 +95,6 @@ int CommandeCD(int n, char *p[]) {
     return 0;
 }
 
-/* affichage du repertoire courant */
 int CommandePWD(int n, char *p[]) {
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
@@ -107,7 +105,6 @@ int CommandePWD(int n, char *p[]) {
     return 0;
 }
 
-/* affichage de la version du shell */
 int CommandeVERS(int n, char *p[]) {
     printf("biceps (bel interpreteur de commandes des eleves de polytech sorbonne)\n");
     printf("version 1.0\n");
@@ -124,20 +121,11 @@ void ajouteCom(char *nom, int (*fonc)(int, char **)) {
     nb_com_int++;
 }
 
-/* enregistrement des nouvelles commandes dans le tableau au demarrage */
 void majComInt(void) {
     ajouteCom("exit", Sortie);
     ajouteCom("cd", CommandeCD);
     ajouteCom("pwd", CommandePWD);
     ajouteCom("vers", CommandeVERS);
-}
-
-void listeComInt(void) {
-    int i;
-    printf("commandes internes disponibles :\n");
-    for (i = 0; i < nb_com_int; i++) {
-        printf("- %s\n", tab_com_int[i].nom);
-    }
 }
 
 int execComInt(int n, char **p) {
@@ -184,6 +172,7 @@ int execComExt(char **p) {
 int main(void) {
     char* ligne = NULL;
     char* prompt = NULL;
+    char* commande_isolee; /* pour strsep sur ';' */
     int i;
 
     majComInt();
@@ -205,17 +194,24 @@ int main(void) {
 
         if (strlen(ligne) > 0) {
             add_history(ligne);
-            analyseCom(ligne);
             
-            if (NMots > 0) {
-                if (execComInt(NMots, Mots) == 0) {
-                    execComExt(Mots);
-                }
-                
-                for (i = 0; i < NMots; i++) {
-                    if (Mots[i] != NULL) {
-                        free(Mots[i]);
-                        Mots[i] = NULL;
+            /* etape 4.2 : on decoupe la ligne par rapport au ';' */
+            char* ptr_ligne = ligne;
+            while ((commande_isolee = strsep(&ptr_ligne, ";")) != NULL) {
+                if (*commande_isolee != '\0') {
+                    analyseCom(commande_isolee);
+                    
+                    if (NMots > 0) {
+                        if (execComInt(NMots, Mots) == 0) {
+                            execComExt(Mots);
+                        }
+                        
+                        for (i = 0; i < NMots; i++) {
+                            if (Mots[i] != NULL) {
+                                free(Mots[i]);
+                                Mots[i] = NULL;
+                            }
+                        }
                     }
                 }
             }
