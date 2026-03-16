@@ -1,6 +1,6 @@
-# makefile pour le projet biceps - etape 1
+# makefile pour le projet biceps - etape 3.2
 CC=gcc
-CFLAGS=-Wall
+CFLAGS=-Wall -DTRACE
 LDLIBS=-lreadline
 
 biceps: biceps.c
