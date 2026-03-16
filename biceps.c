@@ -1,24 +1,23 @@
-/* etape 3.1 : mise en place des commandes internes */
+/* etape 3.2 : gestion des commandes externes avec fork et execvp */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/wait.h> /* ajout pour la fonction waitpid */
 #include <readline/readline.h>
 #include <readline/history.h>
 
 #define MAXPAR 10
-#define NBMAXC 10 /* nb maxi de commandes internes */
+#define NBMAXC 10
 
 static char *Mots[MAXPAR];
 static int NMots;
 
-/* definition de la structure d'une commande interne */
 struct commande_interne {
     char *nom;
     int (*fonction)(int, char **);
 };
 
-/* tableau global des commandes internes et compteur */
 static struct commande_interne tab_com_int[NBMAXC];
 static int nb_com_int = 0;
 
@@ -65,7 +64,8 @@ int analyseCom(char* b) {
     NMots = 0;
     while ((token = strsep(&b, delimiteurs)) != NULL) {
         if (*token != '\0') {
-            if (NMots < MAXPAR) {
+            /* on limite a maxpar - 1 pour garantir la place du null final */
+            if (NMots < MAXPAR - 1) {
                 Mots[NMots] = copyString(token);
                 NMots++;
             } else {
@@ -74,16 +74,16 @@ int analyseCom(char* b) {
             }
         }
     }
+    /* ajout indispensable pour execvp : le tableau doit se terminer par null */
+    Mots[NMots] = NULL;
     return NMots;
 }
 
-/* fonction d'arret du programme */
 int Sortie(int n, char *p[]) {
     exit(0);
     return 0;
 }
 
-/* ajout d'une commande dans le tableau */
 void ajouteCom(char *nom, int (*fonc)(int, char **)) {
     if (nb_com_int >= NBMAXC) {
         fprintf(stderr, "erreur fatale : tableau des commandes internes plein\n");
@@ -94,12 +94,10 @@ void ajouteCom(char *nom, int (*fonc)(int, char **)) {
     nb_com_int++;
 }
 
-/* initialisation du tableau au demarrage */
 void majComInt(void) {
     ajouteCom("exit", Sortie);
 }
 
-/* affichage des commandes internes disponibles */
 void listeComInt(void) {
     int i;
     printf("commandes internes disponibles :\n");
@@ -108,7 +106,6 @@ void listeComInt(void) {
     }
 }
 
-/* execution d'une commande si elle est reconnue comme interne */
 int execComInt(int n, char **p) {
     int i;
     if (n == 0) return 0;
@@ -116,10 +113,46 @@ int execComInt(int n, char **p) {
     for (i = 0; i < nb_com_int; i++) {
         if (strcmp(p[0], tab_com_int[i].nom) == 0) {
             tab_com_int[i].fonction(n, p);
-            return 1; /* vrai */
+            return 1;
         }
     }
-    return 0; /* faux */
+    return 0;
+}
+
+/* nouvelle fonction de gestion des processus externes */
+int execComExt(char **p) {
+    pid_t pid;
+    int status;
+
+    /* duplication du processus courant */
+    pid = fork();
+    
+    if (pid < 0) {
+        perror("erreur fork");
+        return -1;
+    }
+
+    if (pid == 0) {
+        /* espace memoire du processus fils */
+#ifdef TRACE
+        printf("[trace] execution du processus fils (pid=%d) pour %s\n", getpid(), p[0]);
+#endif
+        /* recouvrement de l'espace memoire par le binaire appele */
+        execvp(p[0], p);
+        
+        /* si execvp echoue (commande introuvable), les instructions suivantes s'executent */
+        perror(p[0]);
+        exit(1);
+    } else {
+        /* espace memoire du processus pere */
+#ifdef TRACE
+        printf("[trace] attente de la fin du processus fils (pid=%d)\n", pid);
+#endif
+        /* le shell pere est suspendu tant que le fils n'a pas termine */
+        waitpid(pid, &status, 0);
+    }
+    
+    return 0;
 }
 
 int main(void) {
@@ -127,12 +160,8 @@ int main(void) {
     char* prompt = NULL;
     int i;
 
-    /* chargement des commandes internes */
     majComInt();
     
-    /* affichage optionnel pour valider la structure */
-    listeComInt();
-
     while (1) {
         prompt = creer_prompt();
         if (prompt == NULL) {
@@ -153,14 +182,16 @@ int main(void) {
             analyseCom(ligne);
             
             if (NMots > 0) {
-                /* tentative d'execution comme commande interne */
+                /* l'ordre d'execution est strict : interne puis externe */
                 if (execComInt(NMots, Mots) == 0) {
-                    printf("commande externe (non traitee) : %s\n", Mots[0]);
+                    execComExt(Mots);
                 }
                 
                 for (i = 0; i < NMots; i++) {
-                    free(Mots[i]);
-                    Mots[i] = NULL;
+                    if (Mots[i] != NULL) {
+                        free(Mots[i]);
+                        Mots[i] = NULL;
+                    }
                 }
             }
         }
