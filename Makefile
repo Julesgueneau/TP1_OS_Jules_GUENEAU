@@ -1,10 +1,15 @@
-# makefile pour le projet biceps - etape 3.2
 CC=gcc
 CFLAGS=-Wall -DTRACE
 LDLIBS=-lreadline
 
-biceps: biceps.c
-	$(CC) $(CFLAGS) -o biceps biceps.c $(LDLIBS)
+biceps: biceps.o gescom.o
+	$(CC) $(CFLAGS) -o biceps biceps.o gescom.o $(LDLIBS)
+
+biceps.o: biceps.c gescom.h
+	$(CC) $(CFLAGS) -c biceps.c
+
+gescom.o: gescom.c gescom.h
+	$(CC) $(CFLAGS) -c gescom.c
 
 clean:
-	rm -f biceps
+	rm -f *.o biceps
