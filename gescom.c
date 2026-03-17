@@ -76,7 +76,6 @@ int execComExt(char **p) {
 #ifdef TRACE
         printf("[trace] execution du processus fils (pid=%d) pour %s\n", getpid(), p[0]);
 #endif
-        /* le fils doit pouvoir etre interrompu par ctrl-c */
         signal(SIGINT, SIG_DFL);
         execvp(p[0], p);
         perror(p[0]);
@@ -88,4 +87,48 @@ int execComExt(char **p) {
         waitpid(pid, &status, 0);
     }
     return 0;
+}
+
+/* execution d'une sequence de commandes reliees par des tubes */
+void execPipeline(char **cmds, int nb) {
+    int i;
+    int fd[2];
+    int fd_in = 0;
+    pid_t pids[MAXPAR];
+
+    for (i = 0; i < nb; i++) {
+        pipe(fd);
+        pids[i] = fork();
+        
+        if (pids[i] < 0) {
+            perror("erreur fork pipe");
+            return;
+        }
+        
+        if (pids[i] == 0) {
+            /* espace du processus fils */
+            signal(SIGINT, SIG_DFL);
+            dup2(fd_in, 0); /* l'entree standard lit le tube precedent */
+            if (i < nb - 1) {
+                dup2(fd[1], 1); /* la sortie standard ecrit dans le nouveau tube */
+            }
+            close(fd[0]); /* on ferme la lecture non utilisee par ce fils */
+            
+            /* on analyse et on execute la commande courante */
+            analyseCom(cmds[i]);
+            execvp(Mots[0], Mots);
+            perror(Mots[0]);
+            exit(1);
+        } else {
+            /* espace du processus pere */
+            close(fd[1]); /* le pere n'ecrit pas dans le tube */
+            if (fd_in != 0) close(fd_in); /* on ferme l'ancienne extremite de lecture */
+            fd_in = fd[0]; /* on sauvegarde la lecture pour le prochain fils */
+        }
+    }
+    
+    /* le pere attend la fin de tous les processus du pipeline */
+    for (i = 0; i < nb; i++) {
+        waitpid(pids[i], NULL, 0);
+    }
 }
